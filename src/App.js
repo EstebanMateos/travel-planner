@@ -232,18 +232,17 @@ export default function App() {
 }
 
 {screen === 'view' && (
-        <ItineraryView
-          steps={steps}
-          onBack={
+  <ItineraryView
+    steps={steps}
+    routes={routes}
+    durations={durations}
+    onBack={
     () => {
       setScreen('trip');
       setMapKey(prev => prev + 1);
     }}
-          drawPath={true}
-          routes={
-    routes}
-        />
-      )}
+  />
+)}
     </div>
   );
 }
