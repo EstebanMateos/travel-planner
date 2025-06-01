@@ -1,7 +1,7 @@
 import './style.css';
 
 import {DragDropContext, Draggable, Droppable} from '@hello-pangea/dnd';
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 
 import {loadTripFromFirebase, saveTripToFirebase} from './firebaseService';
 import ItineraryView from './ItineraryView';
@@ -18,6 +18,8 @@ export default function App() {
   const [editingIndex, setEditingIndex] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [searchResult, setSearchResult] = useState(null);
+  const [durations, setDurations] = useState([]);
+  const [mapKey, setMapKey] = useState(0);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('tripKey');
@@ -50,6 +52,7 @@ export default function App() {
     setCurrentTripKey(key);
     localStorage.setItem('tripKey', key);
     setScreen('trip');
+    setMapKey(prev => prev + 1);
   };
 
   const addStep = (step) => {
@@ -103,27 +106,30 @@ export default function App() {
     setSteps([]);
     setCurrentTripKey('');
     setScreen('home');
+    setMapKey(prev => prev + 1);
   };
 
-  return (
-    <div>
-      {screen === 'home' && (
-        <div>
-          <h1>Welcome to Road Trip Planner</h1>
+  return (<div>{
+      screen === 'home' &&
+      (<div><h1>Welcome to Road Trip Planner<
+          /h1>
           <button onClick={() => setScreen('auth')}>Create a Trip</button>
-          <button onClick={() => setScreen('auth')}>Join a Trip</button>
-        </div>
-      )}
+       <button onClick = {() => setScreen('auth')}>Join a
+           Trip</button>
+        </div>)}
 
-      {screen === 'auth' && (
-        <div>
-          <input value={tripName} onChange={(e) => setTripName(e.target.value)} placeholder='Trip name' />
-          <input type='password' value={tripPassword} onChange={(e) => setTripPassword(e.target.value)} placeholder='Password' />
-          <button onClick={loadTrip}>Continue</button>
-        </div>
-      )}
+          {screen === 'auth' &&
+           (<div>
+            <input value = {tripName} onChange =
+                 {(e) => setTripName(e.target.value)} placeholder =
+                     'Trip name' />
+            <input type = 'password' value = {tripPassword} onChange =
+                 {(e) => setTripPassword(e.target.value)} placeholder =
+                     'Password' />
+            <button onClick = {loadTrip}>Continue</button>
+        </div>)}
 
-      {screen === 'trip' && (
+          {screen === 'trip' && (
         <div className='trip-container'>
           <div className='trip-list'>
             <h2>Itinerary</h2>
@@ -132,39 +138,47 @@ export default function App() {
                 {(provided) => (
                   <ul {...provided.droppableProps} ref={provided.innerRef} className='step-list'>
                     {steps.map((s, i) => (
-                      <Draggable key={i} draggableId={`step-${i}`} index={i}>
-                        {(provided, snapshot) => (
-                          <li
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`step-item ${snapshot.isDragging ? 'dragging' : ''}`}
-                          >
-                            <div>
-                              {editingIndex === i ? (
-                                <input
-                                  value={commentInput}
-                                  autoFocus
-                                  onChange={(e) => setCommentInput(e.target.value)}
-                                  onBlur={() => updateComment()}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') updateComment();
-                                  }}
-                                />
-                              ) : (
-                                <span onClick={() => {
-    setCommentInput(s.comment);
-    setEditingIndex(i); }}>
-                                  {`${i + 1}: ${s.comment}`}
-                                </span>
-                              )}
-                            </div>
-                            <div className='reorder-buttons'>
-                              <button onClick={() => deleteStep(i)}>🗑️</button>
-                            </div>
+                      <React.Fragment key={i}>
+                        <Draggable draggableId={`step-${i}`} index={i}>
+                          {(provided, snapshot) => (
+                            <li
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className={`step-item ${snapshot.isDragging ? 'dragging' : ''}`}
+                            >
+                              <div>
+                                {editingIndex === i ? (
+                                  <input
+                                    value={commentInput}
+                                    autoFocus
+                                    onChange={(e) => setCommentInput(e.target.value)}
+                                    onBlur={() => updateComment()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') updateComment();
+                                    }}
+                                  />
+                                ) : (
+                                  <span onClick={() => {
+      setCommentInput(s.comment);
+      setEditingIndex(i);
+                                  }}>
+                                    {`${i + 1}: ${s.comment}`}
+                                  </span>
+                                )}
+                              </div>
+                              <div className='reorder-buttons'>
+                                <button onClick={() => deleteStep(i)}>🗑️</button>
+                              </div>
+                            </li>
+                          )}
+                        </Draggable>
+                        {i < steps.length - 1 && durations[i] != null && (
+                          <li className='duration-line'>
+                            🚗 {durations[i]}
                           </li>
                         )}
-                      </Draggable>
+                      </React.Fragment>
                     ))}
                     {provided.placeholder}
                   </ul>
@@ -174,12 +188,27 @@ export default function App() {
             <div style={{ marginTop: '1rem' }}>
               <button onClick={() => setScreen('view')}>View Itinerary</button>
               <button onClick={resetTrip} style={{
-    marginLeft: '1rem' }}>Choose Another Trip</button>
+      marginLeft: '1rem' }}>Choose Another Trip</button>
             </div>
           </div>
 
           <div className='trip-map'>
-            <MapComponent steps={steps} onAddStep={addStep} searchPoint={searchResult} drawPath={true} />
+            <MapComponent
+              key={mapKey}
+              steps={steps}
+              searchPoint={searchResult}
+              onDurationsUpdate={(rawDurations) => {
+                const durationsFormatted = rawDurations.map(d => {
+                  if (d == null) return null;
+                  const mins = Math.round(d / 60);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h ${m}min` : `${m}min`;
+          });
+           setDurations(durationsFormatted);
+}
+}
+            />
             <div className='search-area'>
               <input
                 value={searchText}
@@ -193,14 +222,20 @@ export default function App() {
           </div>
         </div>
       )
-}
+            }
 
-{
-  screen === 'view' &&
-      (<ItineraryView steps = {steps} onBack = {
-            () => setScreen('trip')} drawPath = {
-        true
-      } />
+            {screen === 'view' && (
+        <ItineraryView
+          steps={steps}
+          onBack={
+    () => {
+      setScreen('trip');
+      setMapKey(prev => prev + 1);
+    }}
+          drawPath={
+    true}
+        />
       )}
-    </div>);
-}
+    </div>
+  );
+            }

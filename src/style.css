@@ -125,3 +125,11 @@ div {
   border-radius: 6px;
   border: 1px solid #ccc;
 }
+
+.duration-line {
+  text-align: center;
+  font-style: italic;
+  color: #666;
+  margin: 0.3rem 0;
+  font-size: 0.9rem;
+}

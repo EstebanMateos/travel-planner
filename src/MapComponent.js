@@ -1,72 +1,92 @@
 import 'leaflet/dist/leaflet.css';
 
 import L from 'leaflet';
-import React, {useEffect} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 
-let mapInstance = null;
+export default function MapComponent({steps, searchPoint, onDurationsUpdate}) {
+  const mapRef = useRef(null);
+  const layerRef = useRef(null);
+  const [routes, setRoutes] = useState([]);
 
-export default function MapComponent({steps, searchPoint, drawPath}) {
   useEffect(() => {
-    const mapContainer = document.getElementById('map');
-    if (mapContainer && mapContainer._leaflet_id) {
-      mapContainer._leaflet_id = null;
+    async function fetchRoutesAndDurations() {
+      if (steps.length < 2) {
+        setRoutes([]);
+        if (onDurationsUpdate) onDurationsUpdate([]);
+        return;
+      }
+
+      const routesTmp = [];
+      const durationsTmp = [];
+
+      for (let i = 0; i < steps.length - 1; i++) {
+        const from = steps[i];
+        const to = steps[i + 1];
+        const url =
+            `https://router.project-osrm.org/route/v1/driving/${from.lon},${
+                from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson`;
+
+        try {
+          const res = await fetch(url);
+          const json = await res.json();
+
+          if (json.routes && json.routes.length > 0) {
+            routesTmp.push(json.routes[0].geometry.coordinates.map(
+                ([lon, lat]) => [lat, lon]));
+            durationsTmp.push(json.routes[0].duration);
+          } else {
+            routesTmp.push([]);
+            durationsTmp.push(null);
+          }
+        } catch {
+          routesTmp.push([]);
+          durationsTmp.push(null);
+        }
+      }
+
+      setRoutes(routesTmp);
+      if (onDurationsUpdate) onDurationsUpdate(durationsTmp);
     }
 
-    if (!mapInstance) {
-      mapInstance = L.map('map').setView([43.3, -1.5], 6);
+    fetchRoutesAndDurations();
+  }, [steps, onDurationsUpdate]);
+
+  useEffect(() => {
+    if (!mapRef.current) {
+      mapRef.current = L.map('map').setView([43.3, -1.5], 6);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
-          .addTo(mapInstance);
+          .addTo(mapRef.current);
     }
 
-    return () => {
-      if (mapInstance) {
-        mapInstance.off();
-        mapInstance.remove();
-        mapInstance = null;
-      }
-    };
-  }, []);
+    if (layerRef.current) {
+      layerRef.current.clearLayers();
+    } else {
+      layerRef.current = L.layerGroup().addTo(mapRef.current);
+    }
 
-  useEffect(() => {
-    if (!mapInstance) return;
-
-    mapInstance.eachLayer((layer) => {
-      if (layer instanceof L.Marker || layer instanceof L.Polyline) {
-        mapInstance.removeLayer(layer);
-      }
+    steps.forEach((s, i) => {
+      const marker = L.marker([s.lat, s.lon]).addTo(layerRef.current);
+      marker.bindPopup(`#${i + 1}: ${s.comment || '(No comment)'}`);
     });
 
-    if (steps && steps.length > 0) {
-      steps.forEach((s, i) => {
-        const marker = L.marker([s.lat, s.lon]).addTo(mapInstance);
-        marker.bindPopup(`#${i + 1}: ${s.comment || '(No comment)'}`);
-      });
-
-      if (drawPath && steps.length > 1) {
-        const latlngs = steps.map((s) => [s.lat, s.lon]);
-        L.polyline(latlngs, {color: 'blue'}).addTo(mapInstance);
-      }
-    }
-
     if (searchPoint) {
-      const marker =
-          L.marker([searchPoint.lat, searchPoint.lon], {
-             icon: L.icon({
-               iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-               iconSize: [25, 41],
-               iconAnchor: [12, 41],
-               popupAnchor: [0, -41],
-             }),
-           }).addTo(mapInstance);
-      marker.bindPopup(`Search result: ${searchPoint.comment || 'Location'}`)
+      const marker = L.marker([searchPoint.lat, searchPoint.lon], {
+                        opacity: 0.6
+                      }).addTo(layerRef.current);
+      marker.bindPopup(`📍 ${searchPoint.comment || 'Search result'}`)
           .openPopup();
-      mapInstance.setView([searchPoint.lat, searchPoint.lon], 10);
     }
-  }, [steps, searchPoint, drawPath]);
 
-  return < div id = 'map' style = {
-    {
-      height: '80vh', width: '100%'
-    }
-  } />;
+    routes.forEach((route) => {
+      if (route.length > 0) {
+        L.polyline(route, {color: 'blue'}).addTo(layerRef.current);
+      }
+    });
+  }, [steps, searchPoint, routes]);
+
+  return <div id = 'map' style = {
+           {
+             height: '80vh'
+           }
+         }>< /div>;
 }
