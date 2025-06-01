@@ -1,7 +1,7 @@
 import './style.css';
 
 import {DragDropContext, Draggable, Droppable} from '@hello-pangea/dnd';
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 
 import {loadTripFromFirebase, saveTripToFirebase} from './firebaseService';
 import ItineraryView from './ItineraryView';
@@ -19,7 +19,9 @@ export default function App() {
   const [searchText, setSearchText] = useState('');
   const [searchResult, setSearchResult] = useState(null);
   const [durations, setDurations] = useState([]);
+  const [routes, setRoutes] = useState([]);
   const [mapKey, setMapKey] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('tripKey');
@@ -109,30 +111,48 @@ export default function App() {
     setMapKey(prev => prev + 1);
   };
 
-  return (<div>{
-      screen === 'home' &&
-      (<div><h1>Welcome to Road Trip Planner<
-          /h1>
+  const handleDurationsUpdate = (durSecs) => {
+    const converted = durSecs.map(sec => {
+      if (sec == null) return null;
+      const min = Math.round(sec / 60);
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      return h > 0 ? `${h}h ${m}min` : `${m}min`;
+    });
+    setDurations(converted);
+  };
+
+  const onReorderFromMap = (fromIndex, toIndex) => {
+    const reordered = Array.from(steps);
+    const [removed] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, removed);
+    setSteps(reordered);
+    saveTripToFirebase(currentTripKey, {steps: reordered});
+  };
+
+  return (
+    <div>
+      {screen === 'home' && (
+        <div>
+          <h1>Welcome to Road Trip Planner</h1>
           <button onClick={() => setScreen('auth')}>Create a Trip</button>
-       <button onClick = {() => setScreen('auth')}>Join a
-           Trip</button>
-        </div>)}
+          <button onClick={() => setScreen('auth')}>Join a Trip</button>
+        </div>
+      )}
 
-          {screen === 'auth' &&
-           (<div>
-            <input value = {tripName} onChange =
-                 {(e) => setTripName(e.target.value)} placeholder =
-                     'Trip name' />
-            <input type = 'password' value = {tripPassword} onChange =
-                 {(e) => setTripPassword(e.target.value)} placeholder =
-                     'Password' />
-            <button onClick = {loadTrip}>Continue</button>
-        </div>)}
+      {screen === 'auth' && (
+        <div>
+          <input value={tripName} onChange={(e) => setTripName(e.target.value)} placeholder='Trip name' />
+          <input type='password' value={tripPassword} onChange={(e) => setTripPassword(e.target.value)} placeholder='Password' />
+          <button onClick={loadTrip}>Continue</button>
+        </div>
+      )}
 
-          {screen === 'trip' && (
+      {screen === 'trip' && (
         <div className='trip-container'>
           <div className='trip-list'>
             <h2>Itinerary</h2>
+            {loading && <div style={{ color: 'gray', fontStyle: 'italic' }}>Calculating...</div>}
             <DragDropContext onDragEnd={onDragEnd}>
               <Droppable droppableId='steps'>
                 {(provided) => (
@@ -142,26 +162,22 @@ export default function App() {
                         <Draggable draggableId={`step-${i}`} index={i}>
                           {(provided, snapshot) => (
                             <li
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              className={`step-item ${snapshot.isDragging ? 'dragging' : ''}`}
-                            >
-                              <div>
-                                {editingIndex === i ? (
-                                  <input
-                                    value={commentInput}
-                                    autoFocus
+  ref = {provided.innerRef} {...provided.draggableProps} {
+      ...provided.dragHandleProps} className =
+      {`step-item ${snapshot.isDragging ? 'dragging' : ''}`} >
+      <div>{editingIndex === i ? (< input
+  value = {commentInput} autoFocus
                                     onChange={(e) => setCommentInput(e.target.value)}
                                     onBlur={() => updateComment()}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') updateComment();
-                                    }}
+                                    onKeyDown={
+    (e) => {
+      if (e.key === 'Enter') updateComment();
+    }}
                                   />
                                 ) : (
                                   <span onClick={() => {
-      setCommentInput(s.comment);
-      setEditingIndex(i);
+                                    setCommentInput(s.comment);
+                                    setEditingIndex(i);
                                   }}>
                                     {`${i + 1}: ${s.comment}`}
                                   </span>
@@ -174,9 +190,7 @@ export default function App() {
                           )}
                         </Draggable>
                         {i < steps.length - 1 && durations[i] != null && (
-                          <li className='duration-line'>
-                            🚗 {durations[i]}
-                          </li>
+                          <li className='duration-line'>🚗 {durations[i]}</li>
                         )}
                       </React.Fragment>
                     ))}
@@ -185,10 +199,10 @@ export default function App() {
                 )}
               </Droppable>
             </DragDropContext>
-            <div style={{ marginTop: '1rem' }}>
+            <div style={{
+    marginTop: '1rem' }}>
               <button onClick={() => setScreen('view')}>View Itinerary</button>
-              <button onClick={resetTrip} style={{
-      marginLeft: '1rem' }}>Choose Another Trip</button>
+              <button onClick={resetTrip} style={{ marginLeft: '1rem' }}>Choose Another Trip</button>
             </div>
           </div>
 
@@ -196,18 +210,11 @@ export default function App() {
             <MapComponent
               key={mapKey}
               steps={steps}
+              onDurationsUpdate={handleDurationsUpdate}
+              setLoading={setLoading}
               searchPoint={searchResult}
-              onDurationsUpdate={(rawDurations) => {
-                const durationsFormatted = rawDurations.map(d => {
-                  if (d == null) return null;
-                  const mins = Math.round(d / 60);
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return h > 0 ? `${h}h ${m}min` : `${m}min`;
-          });
-           setDurations(durationsFormatted);
-}
-}
+              onReorderFromMap={
+    onReorderFromMap}
             />
             <div className='search-area'>
               <input
@@ -222,9 +229,9 @@ export default function App() {
           </div>
         </div>
       )
-            }
+}
 
-            {screen === 'view' && (
+{screen === 'view' && (
         <ItineraryView
           steps={steps}
           onBack={
@@ -232,10 +239,11 @@ export default function App() {
       setScreen('trip');
       setMapKey(prev => prev + 1);
     }}
-          drawPath={
-    true}
+          drawPath={true}
+          routes={
+    routes}
         />
       )}
     </div>
   );
-            }
+}
